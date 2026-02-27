@@ -2,6 +2,37 @@
    UX VALIDATOR — Frontend Application
    ============================================= */
 
+// ---- Provider config ----
+const PROVIDERS = {
+  anthropic: {
+    name:       'Anthropic Claude',
+    model:      'claude-sonnet-4-6',
+    placeholder:'sk-ant-...',
+    keyUrl:     'https://console.anthropic.com/account/keys',
+    linkLabel:  'Get free key at console.anthropic.com ↗',
+    why:        'Best for UX analysis — superior visual comprehension, design system understanding, and structured output accuracy.',
+    storageKey: 'uxv_api_key_anthropic'
+  },
+  openai: {
+    name:       'OpenAI GPT-4o',
+    model:      'gpt-4o',
+    placeholder:'sk-...',
+    keyUrl:     'https://platform.openai.com/api-keys',
+    linkLabel:  'Get key at platform.openai.com ↗',
+    why:        'Great quality visual analysis. Good alternative if you already have an OpenAI subscription.',
+    storageKey: 'uxv_api_key_openai'
+  },
+  gemini: {
+    name:       'Google Gemini',
+    model:      'gemini-2.0-flash',
+    placeholder:'AIza...',
+    keyUrl:     'https://aistudio.google.com/app/apikey',
+    linkLabel:  'Get free key at aistudio.google.com ↗',
+    why:        'Free tier available — generous quota. Fast and affordable for quick checks.',
+    storageKey: 'uxv_api_key_gemini'
+  }
+};
+
 // ---- State ----
 const state = {
   guidelinesFile: null,
@@ -11,7 +42,8 @@ const state = {
   activeFilter: 'all',
   highlightedIssueId: null,
   annotationsVisible: true,
-  apiKey: ''
+  provider: 'anthropic',
+  apiKeys: { anthropic: '', openai: '', gemini: '' }
 };
 
 // ---- DOM refs (populated in init) ----
@@ -21,7 +53,7 @@ const el = {};
 const LOADING_STEPS = [
   { text: 'Reading your guidelines...', pct: 15 },
   { text: 'Processing design image...', pct: 30 },
-  { text: 'Sending to Claude for analysis...', pct: 50 },
+  { text: 'Sending to AI for analysis...', pct: 50 },
   { text: 'Checking color compliance...', pct: 65 },
   { text: 'Evaluating typography rules...', pct: 78 },
   { text: 'Reviewing spacing & layout...', pct: 88 },
@@ -93,15 +125,24 @@ function init() {
   el.apiKeyPanel        = document.getElementById('api-key-panel');
   el.apiKeyInput        = document.getElementById('api-key-input');
   el.apiKeySave         = document.getElementById('api-key-save');
+  el.apiKeyLink         = document.getElementById('api-key-link');
+  el.providerWhy        = document.getElementById('provider-why');
+  el.productThumbIcon   = document.getElementById('product-thumb-icon');
 
-  // Restore saved API key
-  const savedKey = localStorage.getItem('uxv_api_key');
-  if (savedKey) {
-    state.apiKey = savedKey;
-    if (el.apiKeyInput) el.apiKeyInput.value = savedKey;
-  }
+  // Restore saved provider selection
+  const savedProvider = localStorage.getItem('uxv_provider');
+  if (savedProvider && PROVIDERS[savedProvider]) state.provider = savedProvider;
 
-  // Check if API key is needed
+  // Restore saved API keys for all providers
+  Object.keys(PROVIDERS).forEach(p => {
+    const k = localStorage.getItem(PROVIDERS[p].storageKey);
+    if (k) state.apiKeys[p] = k;
+  });
+
+  // Update UI to reflect restored provider
+  selectProvider(state.provider, false);
+
+  // Check if API key panel needs to be shown
   checkApiKeyNeeded();
 
   // Set up event listeners
@@ -130,31 +171,64 @@ function init() {
 
   el.apiKeySave.addEventListener('click', saveApiKey);
   el.apiKeyInput.addEventListener('keydown', (e) => { if (e.key === 'Enter') saveApiKey(); });
+
+  // Provider card selection
+  document.querySelectorAll('.provider-card').forEach(card => {
+    card.addEventListener('click', () => selectProvider(card.dataset.provider, true));
+  });
 }
 
 async function checkApiKeyNeeded() {
   try {
-    const res = await fetch('/api/health');
+    const res  = await fetch('/api/health');
     const data = await res.json();
     if (!data.apiKeyConfigured) {
       el.apiKeyPanel.style.display = 'block';
+    } else if (data.defaultProvider) {
+      // Server has a key — use that provider as default (don't show panel)
+      selectProvider(data.defaultProvider, false);
     }
   } catch (_) {
-    // Server unreachable, show panel to be safe
+    // Server unreachable — show panel to be safe
     el.apiKeyPanel.style.display = 'block';
   }
 }
 
+// Switch the active provider — updates UI and persists choice
+function selectProvider(provider, persist) {
+  if (!PROVIDERS[provider]) return;
+  state.provider = provider;
+  if (persist) localStorage.setItem('uxv_provider', provider);
+
+  const info = PROVIDERS[provider];
+
+  // Highlight the active card
+  document.querySelectorAll('.provider-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.provider === provider);
+  });
+
+  // Update key input and link
+  if (el.apiKeyInput) {
+    el.apiKeyInput.placeholder = info.placeholder;
+    el.apiKeyInput.value       = state.apiKeys[provider] || '';
+  }
+  if (el.apiKeyLink) {
+    el.apiKeyLink.href        = info.keyUrl;
+    el.apiKeyLink.textContent = info.linkLabel;
+  }
+  if (el.providerWhy) el.providerWhy.textContent = info.why;
+}
+
 function saveApiKey() {
   const key = el.apiKeyInput.value.trim();
-  state.apiKey = key;
+  state.apiKeys[state.provider] = key;
   if (key) {
-    localStorage.setItem('uxv_api_key', key);
+    localStorage.setItem(PROVIDERS[state.provider].storageKey, key);
   } else {
-    localStorage.removeItem('uxv_api_key');
+    localStorage.removeItem(PROVIDERS[state.provider].storageKey);
   }
   el.apiKeyInput.blur();
-  showToast('API key saved.', 2000);
+  showToast(`${PROVIDERS[state.provider].name} key saved.`, 2000);
 }
 
 // =============================================
@@ -191,9 +265,9 @@ function setupDropZone(type, zone, input, handler) {
 // FILE HANDLERS
 // =============================================
 function handleGuidelinesFile(file) {
-  const allowed = ['.json', '.css', '.txt', '.md'];
+  const allowed = ['.json', '.css', '.txt', '.md', '.pdf', '.docx', '.doc', '.xlsx', '.xls', '.pptx', '.ppt'];
   if (!hasAllowedExt(file.name, allowed)) {
-    showError(`Guidelines: unsupported format "${getExt(file.name)}". Use JSON, CSS, TXT, or MD.`);
+    showError(`Guidelines: unsupported format "${getExt(file.name)}". Use PDF, DOCX, XLSX, PPTX, JSON, or TXT.`);
     return;
   }
   state.guidelinesFile = file;
@@ -205,20 +279,38 @@ function handleGuidelinesFile(file) {
 }
 
 function handleProductFile(file) {
-  const allowed = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+  const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
+  const allowed   = [...imageExts, '.pbix', '.pbip', '.fig'];
   if (!hasAllowedExt(file.name, allowed)) {
-    showError(`Product: unsupported format "${getExt(file.name)}". Export as PNG, JPG, or WEBP.`);
+    showError(`Product: unsupported format "${getExt(file.name)}". Use PNG, JPG, PBIX, PBIP, or FIG.`);
     return;
   }
+
+  const isImage = hasAllowedExt(file.name, imageExts);
+
   // Revoke old object URL
   if (state.productObjectUrl) URL.revokeObjectURL(state.productObjectUrl);
   state.productFile = file;
-  state.productObjectUrl = URL.createObjectURL(file);
 
-  el.productThumb.src = state.productObjectUrl;
+  if (isImage) {
+    state.productObjectUrl   = URL.createObjectURL(file);
+    el.productThumb.src      = state.productObjectUrl;
+    el.productThumb.style.display = '';
+    if (el.productThumbIcon) el.productThumbIcon.style.display = 'none';
+  } else {
+    // Binary design file — show extension badge instead of image preview
+    state.productObjectUrl        = null;
+    el.productThumb.src           = '';
+    el.productThumb.style.display = 'none';
+    if (el.productThumbIcon) {
+      el.productThumbIcon.style.display = '';
+      el.productThumbIcon.textContent   = getExt(file.name).replace('.', '').toUpperCase();
+    }
+  }
+
   el.productName.textContent = file.name;
   el.productSize.textContent = formatBytes(file.size);
-  el.productZone.style.display = 'none';
+  el.productZone.style.display    = 'none';
   el.productPreview.style.display = 'flex';
   updateAnalyzeBtn();
 }
@@ -235,9 +327,11 @@ function clearProduct() {
   if (state.productObjectUrl) URL.revokeObjectURL(state.productObjectUrl);
   state.productFile = null;
   state.productObjectUrl = null;
-  el.productZone.style.display = '';
+  el.productZone.style.display    = '';
   el.productPreview.style.display = 'none';
-  el.productThumb.src = '';
+  el.productThumb.src             = '';
+  el.productThumb.style.display   = '';
+  if (el.productThumbIcon) el.productThumbIcon.style.display = 'none';
   updateAnalyzeBtn();
 }
 
@@ -255,11 +349,13 @@ async function runAnalysis() {
 
   const formData = new FormData();
   formData.append('guidelines', state.guidelinesFile, state.guidelinesFile.name);
-  formData.append('product', state.productFile, state.productFile.name);
+  formData.append('product',    state.productFile,    state.productFile.name);
+  formData.append('provider',   state.provider);
 
   try {
-    const headers = {};
-    if (state.apiKey) headers['X-API-Key'] = state.apiKey;
+    const headers  = {};
+    const apiKey   = state.apiKeys[state.provider];
+    if (apiKey) headers['X-API-Key'] = apiKey;
 
     const res = await fetch('/api/analyze', {
       method: 'POST',
@@ -434,7 +530,8 @@ function renderGuidelinesChips(summary) {
 // ANNOTATED IMAGE
 // =============================================
 function renderAnnotatedImage(issues) {
-  el.designImage.src = state.productObjectUrl;
+  // Binary uploads (.pbix/.fig) return an extracted preview from the server
+  el.designImage.src = state.analysisResult?._previewImage || state.productObjectUrl;
 
   el.designImage.onload = () => {
     const iw = el.designImage.naturalWidth;
