@@ -393,12 +393,25 @@ Find EVERY issue — do not stop early. A professional audit of a real dashboard
 
 // ── JSON extraction ────────────────────────────────────────────────────────────
 function extractJSON(rawText) {
-  const text = (rawText || '').trim();
-  try { return JSON.parse(text); } catch (_) {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) { try { return JSON.parse(match[0]); } catch (_2) {} }
-    throw new Error('AI returned malformed JSON. Please try again.');
+  if (!rawText) throw new Error('AI returned an empty response. Please try again.');
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  let text = rawText.trim()
+    .replace(/^```(?:json)?\s*/i, '')
+    .replace(/\s*```\s*$/i, '')
+    .trim();
+
+  // Direct parse
+  try { return JSON.parse(text); } catch (_) {}
+
+  // Find JSON from first { to last } (handles preamble/postamble)
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch (_) {}
   }
+
+  throw new Error('AI returned malformed JSON. Please try again.');
 }
 
 // ── Providers ─────────────────────────────────────────────────────────────────

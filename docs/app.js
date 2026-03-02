@@ -679,7 +679,7 @@ Return ONLY a valid JSON object — no markdown fences, no text outside the JSON
 ## BoundingBox Guide
 x=0.0, y=0.0 is top-left; x=1.0, y=1.0 is bottom-right. Be precise — these become visual markers on the image.
 
-Return ONLY the JSON object.`;
+CRITICAL: Your entire response must be raw JSON only. No markdown, no code fences, no backticks, no "Here is the analysis" preamble. Start your response with { and end with }.`;
 }
 
 // =============================================
@@ -687,16 +687,26 @@ Return ONLY the JSON object.`;
 // =============================================
 
 function extractJSON(rawText) {
-  const text = (rawText || '').trim();
-  try {
-    return JSON.parse(text);
-  } catch (_) {
-    const match = text.match(/\{[\s\S]*\}/);
-    if (match) {
-      try { return JSON.parse(match[0]); } catch (_2) {}
-    }
-    throw new Error('AI returned malformed JSON. Please try again.');
+  if (!rawText) throw new Error('AI returned an empty response. Please try again.');
+
+  let text = rawText.trim();
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  text = text.replace(/^```(?:json)?\s*/i, '').replace(/\s*```\s*$/i, '').trim();
+
+  // Try direct parse first
+  try { return JSON.parse(text); } catch (_) {}
+
+  // Find JSON from first { to last } (handles preamble/postamble text)
+  const start = text.indexOf('{');
+  const end   = text.lastIndexOf('}');
+  if (start !== -1 && end > start) {
+    try { return JSON.parse(text.slice(start, end + 1)); } catch (_) {}
   }
+
+  // Log what we received so the user can debug if needed
+  console.error('Raw AI response (could not parse):', rawText.substring(0, 500));
+  throw new Error('AI returned malformed JSON. Please try again. (Tip: try a different provider or check the browser console for details.)');
 }
 
 async function analyzeWithClaude(prompt, imageBase64, apiKey) {
@@ -729,6 +739,11 @@ async function analyzeWithClaude(prompt, imageBase64, apiKey) {
   }
 
   const data = await res.json();
+  if (!data.content?.[0]?.text) {
+    const reason = data.stop_reason || 'unknown';
+    if (reason === 'max_tokens') throw new Error('Response was cut off (too long). The analysis is too large — try with a simpler guidelines file.');
+    throw new Error(`Unexpected response from Anthropic (stop_reason: ${reason}). Please try again.`);
+  }
   return extractJSON(data.content[0].text);
 }
 
@@ -760,6 +775,11 @@ async function analyzeWithOpenAI(prompt, imageBase64, apiKey) {
   }
 
   const data = await res.json();
+  if (!data.choices?.[0]?.message?.content) {
+    const reason = data.choices?.[0]?.finish_reason || 'unknown';
+    if (reason === 'length') throw new Error('Response was cut off (too long). Try with a simpler guidelines file.');
+    throw new Error(`Unexpected response from OpenAI (finish_reason: ${reason}). Please try again.`);
+  }
   return extractJSON(data.choices[0].message.content);
 }
 
@@ -786,6 +806,12 @@ async function analyzeWithGemini(prompt, imageBase64, apiKey) {
   }
 
   const data = await res.json();
+  if (!data.candidates?.[0]?.content?.parts?.[0]?.text) {
+    const reason = data.candidates?.[0]?.finishReason || data.promptFeedback?.blockReason || 'unknown';
+    if (reason === 'SAFETY') throw new Error('Gemini blocked this request for safety reasons. Try Anthropic or OpenAI instead.');
+    if (reason === 'MAX_TOKENS') throw new Error('Response was cut off (too long). Try with a simpler guidelines file.');
+    throw new Error(`Unexpected response from Gemini (reason: ${reason}). Please try again.`);
+  }
   return extractJSON(data.candidates[0].content.parts[0].text);
 }
 
