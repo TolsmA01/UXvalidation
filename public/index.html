@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>UX Validator — Design Compliance Checker</title>
+  <title>BI Dashboard Validator — Design & Best Practice Checker</title>
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
@@ -17,9 +17,9 @@
           <path d="M8 16L13 21L24 10" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"/>
           <circle cx="16" cy="16" r="10" stroke="white" stroke-width="1.5" stroke-opacity="0.3"/>
         </svg>
-        <span class="logo-text">UX<span class="logo-accent">Validator</span></span>
+        <span class="logo-text">Dashboard<span class="logo-accent">Validator</span></span>
       </div>
-      <p class="header-tagline">AI-powered design compliance — check your product against your UX guidelines</p>
+      <p class="header-tagline">AI-powered BI dashboard checker — validate against your brand guidelines &amp; design best practices</p>
     </div>
   </header>
 
@@ -100,8 +100,8 @@
           <div class="upload-card-header">
             <div class="upload-card-number">1</div>
             <div>
-              <h2 class="upload-card-title">UX Guidelines</h2>
-              <p class="upload-card-subtitle">Your design system & brand rules</p>
+              <h2 class="upload-card-title">Brand Guidelines</h2>
+              <p class="upload-card-subtitle">Your design system, brand rules &amp; standards</p>
             </div>
           </div>
 
@@ -160,8 +160,8 @@
           <div class="upload-card-header">
             <div class="upload-card-number">2</div>
             <div>
-              <h2 class="upload-card-title">UX Product</h2>
-              <p class="upload-card-subtitle">Your final design or dashboard</p>
+              <h2 class="upload-card-title">Dashboard File</h2>
+              <p class="upload-card-subtitle">Power BI, Tableau, Qlik, Excel, or screenshot</p>
             </div>
           </div>
 
@@ -180,11 +180,13 @@
                 <span class="format-tag">PNG</span>
                 <span class="format-tag">JPG</span>
                 <span class="format-tag">PBIX</span>
+                <span class="format-tag">TWBX</span>
                 <span class="format-tag">FIG</span>
+                <span class="format-tag">XLSX</span>
               </div>
-              <p class="drop-tip">PNG/JPG screenshots, Power BI .pbix/.pbip, or Figma .fig files</p>
+              <p class="drop-tip">Screenshot · Power BI .pbix · Tableau .twbx · Figma .fig · Excel .xlsx</p>
             </div>
-            <input type="file" id="product-input" class="file-input" accept=".png,.jpg,.jpeg,.webp,.gif,.pbix,.pbip,.fig" />
+            <input type="file" id="product-input" class="file-input" accept=".png,.jpg,.jpeg,.webp,.gif,.pbix,.pbip,.fig,.twbx,.qvf,.qvw" />
           </div>
 
           <!-- File preview with image thumbnail -->
@@ -229,7 +231,7 @@
             </svg>
           </div>
         </div>
-        <h2 class="loading-title">Analyzing Your Design</h2>
+        <h2 class="loading-title">Analyzing Your Dashboard</h2>
         <p class="loading-step" id="loading-step">Reading guidelines...</p>
         <div class="loading-steps-track">
           <div class="loading-steps-bar" id="loading-bar"></div>
@@ -295,6 +297,16 @@
             </button>
           </div>
         </div>
+      </div>
+
+      <!-- Section scores -->
+      <div class="card sections-card" id="sections-card" style="display:none">
+        <h3 class="card-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+          Analysis by Section
+        </h3>
+        <div class="sections-grid" id="sections-grid"></div>
+        <p class="sections-hint">Click a section to filter issues below &middot; click again to clear</p>
       </div>
 
       <!-- Guidelines extracted -->
@@ -364,7 +376,7 @@
   </main>
 
   <footer class="footer">
-    <p>Powered by <strong>Anthropic Claude · OpenAI GPT-4o · Google Gemini</strong> · Your files are analyzed in real-time and never stored</p>
+    <p><strong>BI Dashboard Validator</strong> &middot; Powered by Anthropic Claude · OpenAI GPT-4o · Google Gemini &middot; Files analyzed in real-time, never stored</p>
   </footer>
 
   <script src="app.js"></script>

@@ -40,6 +40,7 @@ const state = {
   productObjectUrl: null,
   analysisResult: null,
   activeFilter: 'all',
+  activeSection: 'all',
   highlightedIssueId: null,
   annotationsVisible: true,
   provider: 'anthropic',
@@ -51,13 +52,15 @@ const el = {};
 
 // ---- Loading steps ----
 const LOADING_STEPS = [
-  { text: 'Reading your guidelines...', pct: 15 },
-  { text: 'Processing design image...', pct: 30 },
-  { text: 'Sending to AI for analysis...', pct: 50 },
-  { text: 'Checking color compliance...', pct: 65 },
-  { text: 'Evaluating typography rules...', pct: 78 },
-  { text: 'Reviewing spacing & layout...', pct: 88 },
-  { text: 'Generating detailed report...', pct: 96 }
+  { text: 'Reading your guidelines...',                  pct: 12 },
+  { text: 'Processing dashboard image...',               pct: 25 },
+  { text: 'Sending to AI for analysis...',               pct: 40 },
+  { text: 'Checking colors & brand compliance...',       pct: 55 },
+  { text: 'Evaluating chart types & data visuals...',    pct: 65 },
+  { text: 'Reviewing KPIs & number formatting...',       pct: 75 },
+  { text: 'Auditing layout & information hierarchy...',  pct: 84 },
+  { text: 'Checking BI best practices...',               pct: 92 },
+  { text: 'Generating structured report...',             pct: 97 }
 ];
 let loadingStepInterval = null;
 
@@ -114,6 +117,9 @@ function init() {
 
   el.positivesList      = document.getElementById('positives-list');
   el.positivesCard      = document.getElementById('positives-card');
+
+  el.sectionsCard       = document.getElementById('sections-card');
+  el.sectionsGrid       = document.getElementById('sections-grid');
 
   el.errorToast         = document.getElementById('error-toast');
   el.errorMessage       = document.getElementById('error-message');
@@ -280,9 +286,9 @@ function handleGuidelinesFile(file) {
 
 function handleProductFile(file) {
   const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
-  const allowed   = [...imageExts, '.pbix', '.pbip', '.fig'];
+  const allowed   = [...imageExts, '.pbix', '.pbip', '.fig', '.twbx', '.qvf', '.qvw'];
   if (!hasAllowedExt(file.name, allowed)) {
-    showError(`Product: unsupported format "${getExt(file.name)}". Use PNG, JPG, PBIX, PBIP, or FIG.`);
+    showError(`Unsupported format "${getExt(file.name)}". Use PNG/JPG, .pbix (Power BI), .twbx (Tableau), .fig (Figma), or .qvf (Qlik).`);
     return;
   }
 
@@ -406,6 +412,9 @@ function stopLoadingSteps() {
 // RENDER RESULTS
 // =============================================
 function renderResults(data) {
+  // Reset section filter on each new result
+  state.activeSection = 'all';
+
   renderScore(data.complianceScore);
   el.scoreSummary.textContent = data.summary || '';
 
@@ -418,10 +427,73 @@ function renderResults(data) {
   el.countMedium.textContent   = counts.medium;
   el.countLow.textContent      = counts.low;
 
+  renderSections(data.sections || []);
   renderGuidelinesChips(data.guidelinesSummary || {});
   renderAnnotatedImage(issues);
   renderIssues(issues);
   renderPositives(data.positives || []);
+}
+
+// =============================================
+// SECTION SCORES
+// =============================================
+function renderSections(sections) {
+  if (!sections || !sections.length) {
+    el.sectionsCard.style.display = 'none';
+    return;
+  }
+  el.sectionsCard.style.display = '';
+  el.sectionsGrid.innerHTML = '';
+
+  sections.forEach(sec => {
+    const score = Math.max(0, Math.min(100, sec.score || 0));
+    const color = score >= 80 ? '#22C55E' : score >= 60 ? '#EAB308' : score >= 40 ? '#F97316' : '#EF4444';
+    const count = sec.issueCount || 0;
+
+    const card = document.createElement('button');
+    card.className = 'section-score-card';
+    card.dataset.section = sec.id;
+    card.innerHTML = `
+      <div class="section-score-top">
+        <span class="section-score-title">${escapeHtml(sec.title)}</span>
+        <span class="section-score-num" style="color:${color}">${score}</span>
+      </div>
+      <div class="section-score-bar">
+        <div class="section-score-fill" style="width:0%;background:${color}" data-target="${score}"></div>
+      </div>
+      <div class="section-score-meta">
+        <span class="section-summary-text">${escapeHtml(sec.summary || '')}</span>
+        <span class="section-issue-badge">${count} issue${count !== 1 ? 's' : ''}</span>
+      </div>
+    `;
+    card.addEventListener('click', () => setSectionFilter(sec.id));
+    el.sectionsGrid.appendChild(card);
+
+    // Animate bar fill after paint
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const fill = card.querySelector('.section-score-fill');
+        if (fill) fill.style.width = score + '%';
+      }, 80);
+    });
+  });
+}
+
+function setSectionFilter(sectionId) {
+  // Toggle: click same section again to clear filter
+  state.activeSection = state.activeSection === sectionId ? 'all' : sectionId;
+  document.querySelectorAll('.section-score-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.section === state.activeSection);
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  document.querySelectorAll('.issue-card').forEach(card => {
+    const severityOk = state.activeFilter  === 'all' || card.dataset.severity === state.activeFilter;
+    const sectionOk  = state.activeSection === 'all' || card.dataset.section  === state.activeSection;
+    card.classList.toggle('hidden', !(severityOk && sectionOk));
+  });
 }
 
 function renderScore(score) {
@@ -723,11 +795,23 @@ function renderIssues(issues) {
   });
 }
 
+const SECTION_LABELS = {
+  typography:     'Typography',
+  color:          'Color',
+  charts:         'Charts',
+  numbers:        'Numbers',
+  layout:         'Layout',
+  best_practices: 'Best Practices'
+};
+
 function createIssueCard(issue) {
   const card = document.createElement('div');
   card.className = 'issue-card fade-in';
   card.dataset.severity = issue.severity;
-  card.dataset.id = issue.id;
+  card.dataset.section  = issue.section || 'best_practices';
+  card.dataset.id       = issue.id;
+
+  const sectionLabel = SECTION_LABELS[issue.section] || issue.section || '';
 
   card.innerHTML = `
     <div class="issue-header">
@@ -736,7 +820,7 @@ function createIssueCard(issue) {
         <div class="issue-title-row">
           <span class="issue-title">${escapeHtml(issue.title)}</span>
           <span class="severity-badge ${issue.severity}">${issue.severity}</span>
-          <span class="category-badge">${issue.category || ''}</span>
+          ${sectionLabel ? `<span class="section-tag section-tag-${issue.section}">${sectionLabel}</span>` : ''}
         </div>
         <div class="issue-location">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -754,10 +838,14 @@ function createIssueCard(issue) {
           <div class="issue-detail-value">${escapeHtml(issue.description || '')}</div>
         </div>
         <div class="issue-detail-item">
-          <div class="issue-detail-label">Guideline Violated</div>
+          <div class="issue-detail-label">Rule / Best Practice Violated</div>
           <div class="issue-detail-value">${escapeHtml(issue.guidelineViolated || '—')}</div>
         </div>
         <div class="issue-detail-item">
+          <div class="issue-detail-label">Sub-category</div>
+          <div class="issue-detail-value">${escapeHtml(issue.category || '—')}</div>
+        </div>
+        <div class="issue-detail-item" style="grid-column:1/-1">
           <div class="issue-detail-label">Current → Expected</div>
           <div class="issue-detail-value">
             <div class="value-diff">
@@ -769,7 +857,7 @@ function createIssueCard(issue) {
         </div>
       </div>
       <div class="issue-recommendation">
-        <div class="issue-recommendation-label">Recommendation</div>
+        <div class="issue-recommendation-label">Fix / Recommendation</div>
         <div class="issue-recommendation-text">${escapeHtml(issue.recommendation || '')}</div>
       </div>
     </div>
@@ -830,10 +918,7 @@ function setFilter(filter) {
   document.querySelectorAll('.filter-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.filter === filter);
   });
-  document.querySelectorAll('.issue-card').forEach(card => {
-    const visible = filter === 'all' || card.dataset.severity === filter;
-    card.classList.toggle('hidden', !visible);
-  });
+  applyFilters();
 }
 
 // =============================================
@@ -865,6 +950,7 @@ function showSection(name) {
 function resetToUpload() {
   state.analysisResult = null;
   state.highlightedIssueId = null;
+  state.activeSection = 'all';
   setFilter('all');
   showSection('upload');
 }
