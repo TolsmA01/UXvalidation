@@ -1,5 +1,5 @@
 /* =============================================
-   UX VALIDATOR — Browser-only version (GitHub Pages)
+   BI Dashboard Validator — Browser-only version (GitHub Pages)
    All processing happens client-side; calls AI APIs directly.
    ============================================= */
 
@@ -47,6 +47,7 @@ const state = {
   productObjectUrl: null,
   analysisResult: null,
   activeFilter: 'all',
+  activeSection: 'all',
   highlightedIssueId: null,
   annotationsVisible: true,
   provider: 'anthropic',
@@ -56,16 +57,17 @@ const state = {
 // ---- DOM refs (populated in init) ----
 const el = {};
 
-// ---- Loading steps ----
+// ---- Loading steps (BI-specific) ----
 const LOADING_STEPS = [
-  { text: 'Reading your guidelines...', pct: 10 },
-  { text: 'Processing design file...', pct: 25 },
-  { text: 'Resizing image for analysis...', pct: 40 },
-  { text: 'Sending to AI provider...', pct: 55 },
-  { text: 'Checking color compliance...', pct: 68 },
-  { text: 'Evaluating typography rules...', pct: 78 },
-  { text: 'Reviewing spacing & layout...', pct: 88 },
-  { text: 'Generating detailed report...', pct: 96 }
+  { text: 'Reading your guidelines...',                  pct: 12 },
+  { text: 'Processing dashboard image...',               pct: 25 },
+  { text: 'Sending to AI for analysis...',               pct: 40 },
+  { text: 'Checking colors & brand compliance...',       pct: 55 },
+  { text: 'Evaluating chart types & data visuals...',    pct: 65 },
+  { text: 'Reviewing KPIs & number formatting...',       pct: 75 },
+  { text: 'Auditing layout & information hierarchy...',  pct: 84 },
+  { text: 'Checking BI best practices...',               pct: 92 },
+  { text: 'Generating structured report...',             pct: 97 }
 ];
 let loadingStepInterval = null;
 
@@ -108,6 +110,9 @@ function init() {
 
   el.guidelinesChips    = document.getElementById('guidelines-chips');
   el.guidelinesSummaryCard = document.getElementById('guidelines-summary-card');
+
+  el.sectionsCard       = document.getElementById('sections-card');
+  el.sectionsGrid       = document.getElementById('sections-grid');
 
   el.imageContainer     = document.getElementById('image-container');
   el.designImage        = document.getElementById('design-image');
@@ -262,7 +267,7 @@ function handleProductFile(file) {
   const imageExts = ['.png', '.jpg', '.jpeg', '.webp', '.gif'];
   const allowed   = [...imageExts, '.pbix', '.pbip', '.fig', '.twbx', '.qvf', '.qvw'];
   if (!hasAllowedExt(file.name, allowed)) {
-    showError(`Product: unsupported format "${getExt(file.name)}". Use PNG, JPG, PBIX, TWBX, PBIP, FIG, QVF, or QVW.`);
+    showError(`Unsupported format "${getExt(file.name)}". Use PNG/JPG, .pbix (Power BI), .twbx (Tableau), .fig (Figma), or .qvf (Qlik).`);
     return;
   }
 
@@ -370,22 +375,14 @@ async function runAnalysis() {
 // BROWSER FILE PROCESSING
 // =============================================
 
-// Read all text from a guidelines file
 async function extractGuidelinesText(file) {
   const ext = getExt(file.name);
 
-  if (ext === '.pdf') {
-    return extractPdfText(file);
-  }
-  if (ext === '.docx' || ext === '.doc') {
-    return extractDocxText(file);
-  }
-  if (ext === '.xlsx' || ext === '.xls') {
-    return extractXlsxText(file);
-  }
-  if (ext === '.pptx' || ext === '.ppt') {
-    return extractPptxText(file);
-  }
+  if (ext === '.pdf') return extractPdfText(file);
+  if (ext === '.docx' || ext === '.doc') return extractDocxText(file);
+  if (ext === '.xlsx' || ext === '.xls') return extractXlsxText(file);
+  if (ext === '.pptx' || ext === '.ppt') return extractPptxText(file);
+
   // Plain text: json, txt, md, css
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -437,9 +434,9 @@ async function extractPptxText(file) {
   if (typeof JSZip === 'undefined') {
     throw new Error('JSZip failed to load. Please refresh and try again.');
   }
-  const zip      = new JSZip();
-  const loaded   = await zip.loadAsync(file);
-  const names    = Object.keys(loaded.files)
+  const zip    = new JSZip();
+  const loaded = await zip.loadAsync(file);
+  const names  = Object.keys(loaded.files)
     .filter(n => /ppt\/slides\/slide\d+\.xml$/i.test(n))
     .sort();
 
@@ -484,17 +481,10 @@ async function extractProductData(file) {
     throw new Error('JSZip failed to load. Please refresh and try again.');
   }
 
-  let zipBuffer;
-  try {
-    zipBuffer = await file.arrayBuffer();
-  } catch (_) {
-    throw new Error(`Could not read ${ext} file.`);
-  }
-
   let loaded;
   try {
     const zip = new JSZip();
-    loaded = await zip.loadAsync(zipBuffer);
+    loaded = await zip.loadAsync(await file.arrayBuffer());
   } catch (_) {
     throw new Error(
       `Could not open ${ext} file as a ZIP archive. ` +
@@ -575,7 +565,7 @@ function resizeImageToBase64(objectUrl) {
 }
 
 // =============================================
-// ANALYSIS PROMPT
+// ANALYSIS PROMPT (BI-specific, 6 sections)
 // =============================================
 function buildAnalysisPrompt(guidelinesText, guidelinesFilename, productFilename) {
   const MAX_GUIDELINES = 12000;
@@ -583,74 +573,113 @@ function buildAnalysisPrompt(guidelinesText, guidelinesFilename, productFilename
     ? guidelinesText.substring(0, MAX_GUIDELINES) + '\n... [truncated for length]'
     : guidelinesText;
 
-  return `You are a senior UX/UI design quality assurance expert. You will analyze a design screenshot against provided UX guidelines and produce a thorough compliance report.
+  return `You are a senior BI design quality assurance expert specialising in dashboard UX. Analyze the provided dashboard screenshot against the brand guidelines and BI best practices. Be extremely thorough.
 
-## UX Guidelines (from file: ${guidelinesFilename})
+## Brand Guidelines (from: ${guidelinesFilename})
 \`\`\`
 ${text}
 \`\`\`
 
 ## Your Task
-Analyze the provided design screenshot (${productFilename}) against the guidelines above. Be extremely thorough and specific. Examine every visible element:
-- Colors (backgrounds, text, borders, icons, buttons, links)
-- Typography (font families, sizes, weights, line heights, letter spacing)
-- Spacing & layout (padding, margins, gaps, grid alignment)
-- Component styles (buttons, inputs, cards, navigation, badges)
-- Branding consistency (logos, icons, imagery tone)
-- Accessibility (contrast ratios, text sizes)
+Analyze the dashboard screenshot (${productFilename}) against:
+1. The brand guidelines above (colors, fonts, spacing, components)
+2. BI & dashboard design best practices (chart choices, KPI layout, number formatting, axis labels, cognitive load, data-ink ratio, table formatting, color use for data)
+
+Examine every visible element. Aim for 15–30+ issues total across all 6 sections.
 
 ## Output Format
-Return ONLY a valid JSON object with ZERO additional text, no markdown code fences, no explanations outside the JSON. Use this exact structure:
+Return ONLY a valid JSON object — no markdown fences, no text outside the JSON.
 
 {
   "complianceScore": <integer 0-100>,
   "summary": "<2-3 sentence overall assessment>",
   "guidelinesSummary": {
-    "colors": ["<each color found in guidelines with its name and hex/value>"],
-    "fonts": ["<each font family with its intended use>"],
+    "colors": ["<color name and hex>"],
+    "fonts": ["<font family with intended use>"],
     "fontSizes": {"<name>": "<value>"},
     "spacing": {"<name>": "<value>"},
-    "other": ["<any other rules extracted from guidelines>"]
+    "other": ["<other rules>"]
   },
+  "sections": [
+    {
+      "id": "typography",
+      "title": "Typography",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    },
+    {
+      "id": "color",
+      "title": "Color & Branding",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    },
+    {
+      "id": "charts",
+      "title": "Charts & Visuals",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    },
+    {
+      "id": "numbers",
+      "title": "Numbers & KPIs",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    },
+    {
+      "id": "layout",
+      "title": "Layout & Spacing",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    },
+    {
+      "id": "best_practices",
+      "title": "BI Best Practices",
+      "score": <0-100>,
+      "summary": "<1 sentence>",
+      "issueCount": <integer>
+    }
+  ],
   "issues": [
     {
       "id": <integer starting at 1>,
-      "category": "<one of: color | typography | spacing | layout | component | branding | accessibility | other>",
-      "severity": "<one of: critical | high | medium | low>",
+      "section": "<one of: typography | color | charts | numbers | layout | best_practices>",
+      "category": "<specific sub-category>",
+      "severity": "<critical | high | medium | low>",
       "title": "<short issue title, max 60 chars>",
-      "description": "<detailed description: what exactly is wrong, where it appears, why it violates the guideline>",
-      "location": "<precise textual description of where in the image this issue occurs>",
+      "description": "<detailed description: what is wrong, where it is, why it violates the rule>",
+      "location": "<precise location in the image>",
       "boundingBox": {
-        "x": <float 0.0-1.0, fraction of image width from left edge>,
-        "y": <float 0.0-1.0, fraction of image height from top edge>,
-        "width": <float 0.0-1.0, fraction of image width>,
-        "height": <float 0.0-1.0, fraction of image height>
+        "x": <float 0.0-1.0>,
+        "y": <float 0.0-1.0>,
+        "width": <float 0.0-1.0>,
+        "height": <float 0.0-1.0>
       },
-      "guidelineViolated": "<exact guideline rule that is violated>",
-      "currentValue": "<what the design currently shows, e.g., '#FF0000', 'Arial 14px'>",
-      "expectedValue": "<what guidelines specify it should be>",
-      "recommendation": "<specific, actionable fix with exact values to change to>"
+      "guidelineViolated": "<the specific guideline or best practice violated>",
+      "currentValue": "<what the dashboard currently shows>",
+      "expectedValue": "<what it should be>",
+      "recommendation": "<specific actionable fix with exact values>"
     }
   ],
-  "positives": [
-    "<specific thing that correctly follows a guideline, with detail>"
-  ]
+  "positives": ["<specific thing done correctly>"]
 }
 
-## Severity Guide
-- critical: Completely wrong / major brand violation (e.g., wrong primary color on hero CTA, wrong font family throughout)
-- high: Clearly incorrect value that significantly impacts design quality (e.g., heading size off by more than 20%)
-- medium: Notable deviation that should be fixed (e.g., spacing slightly off, secondary color misused)
-- low: Minor inconsistency or polish issue (e.g., border-radius slightly different)
+## Section Guide
+- typography: fonts, sizes, weights, line heights, text alignment, hierarchy
+- color: brand colors, data colors, contrast ratios, color accessibility
+- charts: chart type appropriateness, chart junk, axis labels, legends, titles, gridlines, data-ink ratio
+- numbers: KPI formatting, decimal places, units, thousands separators, percentage display
+- layout: alignment, spacing, grid consistency, white space, visual hierarchy, cognitive load
+- best_practices: dashboard purpose clarity, filter/slicer design, mobile considerations, storytelling, interactivity cues
 
-## BoundingBox Guidelines
-- Use precise coordinates to mark the EXACT element with the issue
-- x=0.0, y=0.0 is top-left corner; x=1.0, y=1.0 is bottom-right
-- For a small button in the top-right area: {"x": 0.75, "y": 0.02, "width": 0.15, "height": 0.06}
-- If an issue is truly global (affects whole design), set {"x": 0.0, "y": 0.0, "width": 1.0, "height": 1.0}
-- Be as precise as possible — users will see these as visual annotations on the image
+## BoundingBox Guide
+x=0.0, y=0.0 is top-left; x=1.0, y=1.0 is bottom-right. Be precise — these become visual markers on the image.
 
-Find ALL issues. Do not stop early. Return ONLY the JSON object.`;
+Return ONLY the JSON object.`;
 }
 
 // =============================================
@@ -785,6 +814,9 @@ function stopLoadingSteps() {
 // RENDER RESULTS
 // =============================================
 function renderResults(data) {
+  // Reset section filter on each new result
+  state.activeSection = 'all';
+
   renderScore(data.complianceScore);
   el.scoreSummary.textContent = data.summary || '';
 
@@ -797,10 +829,73 @@ function renderResults(data) {
   el.countMedium.textContent   = counts.medium;
   el.countLow.textContent      = counts.low;
 
+  renderSections(data.sections || []);
   renderGuidelinesChips(data.guidelinesSummary || {});
   renderAnnotatedImage(issues);
   renderIssues(issues);
   renderPositives(data.positives || []);
+}
+
+// =============================================
+// SECTION SCORES
+// =============================================
+function renderSections(sections) {
+  if (!sections || !sections.length) {
+    el.sectionsCard.style.display = 'none';
+    return;
+  }
+  el.sectionsCard.style.display = '';
+  el.sectionsGrid.innerHTML = '';
+
+  sections.forEach(sec => {
+    const score = Math.max(0, Math.min(100, sec.score || 0));
+    const color = score >= 80 ? '#22C55E' : score >= 60 ? '#EAB308' : score >= 40 ? '#F97316' : '#EF4444';
+    const count = sec.issueCount || 0;
+
+    const card = document.createElement('button');
+    card.className = 'section-score-card';
+    card.dataset.section = sec.id;
+    card.innerHTML = `
+      <div class="section-score-top">
+        <span class="section-score-title">${escapeHtml(sec.title)}</span>
+        <span class="section-score-num" style="color:${color}">${score}</span>
+      </div>
+      <div class="section-score-bar">
+        <div class="section-score-fill" style="width:0%;background:${color}" data-target="${score}"></div>
+      </div>
+      <div class="section-score-meta">
+        <span class="section-summary-text">${escapeHtml(sec.summary || '')}</span>
+        <span class="section-issue-badge">${count} issue${count !== 1 ? 's' : ''}</span>
+      </div>
+    `;
+    card.addEventListener('click', () => setSectionFilter(sec.id));
+    el.sectionsGrid.appendChild(card);
+
+    // Animate bar fill after paint
+    requestAnimationFrame(() => {
+      setTimeout(() => {
+        const fill = card.querySelector('.section-score-fill');
+        if (fill) fill.style.width = score + '%';
+      }, 80);
+    });
+  });
+}
+
+function setSectionFilter(sectionId) {
+  // Toggle: click same section again to clear filter
+  state.activeSection = state.activeSection === sectionId ? 'all' : sectionId;
+  document.querySelectorAll('.section-score-card').forEach(card => {
+    card.classList.toggle('active', card.dataset.section === state.activeSection);
+  });
+  applyFilters();
+}
+
+function applyFilters() {
+  document.querySelectorAll('.issue-card').forEach(card => {
+    const severityOk = state.activeFilter  === 'all' || card.dataset.severity === state.activeFilter;
+    const sectionOk  = state.activeSection === 'all' || card.dataset.section  === state.activeSection;
+    card.classList.toggle('hidden', !(severityOk && sectionOk));
+  });
 }
 
 function renderScore(score) {
@@ -863,27 +958,23 @@ function renderGuidelinesChips(summary) {
     addCategory('Colors');
     summary.colors.forEach(c => {
       const match = c.match(/#([0-9A-Fa-f]{3,6})/);
-      const hex = match ? match[0] : null;
-      const name = c.replace(/#([0-9A-Fa-f]{3,6})/g, '').replace(/[:\-,]/g, ' ').trim() || c;
+      const hex   = match ? match[0] : null;
+      const name  = c.replace(/#([0-9A-Fa-f]{3,6})/g, '').replace(/[:\-,]/g, ' ').trim() || c;
       addChip(name, hex || c, !!hex);
     });
   }
-
   if (summary.fonts?.length) {
     addCategory('Fonts');
     summary.fonts.forEach(f => addChip(f, '', false));
   }
-
   if (summary.fontSizes && Object.keys(summary.fontSizes).length) {
     addCategory('Sizes');
     Object.entries(summary.fontSizes).forEach(([k, v]) => addChip(k, v, false));
   }
-
   if (summary.spacing && Object.keys(summary.spacing).length) {
     addCategory('Spacing');
     Object.entries(summary.spacing).forEach(([k, v]) => addChip(k, v, false));
   }
-
   if (summary.other?.length) {
     addCategory('Other');
     summary.other.forEach(r => addChip(r, '', false));
@@ -1078,11 +1169,23 @@ function renderIssues(issues) {
   });
 }
 
+const SECTION_LABELS = {
+  typography:     'Typography',
+  color:          'Color',
+  charts:         'Charts',
+  numbers:        'Numbers',
+  layout:         'Layout',
+  best_practices: 'Best Practices'
+};
+
 function createIssueCard(issue) {
   const card = document.createElement('div');
   card.className = 'issue-card fade-in';
   card.dataset.severity = issue.severity;
-  card.dataset.id = issue.id;
+  card.dataset.section  = issue.section || 'best_practices';
+  card.dataset.id       = issue.id;
+
+  const sectionLabel = SECTION_LABELS[issue.section] || issue.section || '';
 
   card.innerHTML = `
     <div class="issue-header">
@@ -1091,7 +1194,7 @@ function createIssueCard(issue) {
         <div class="issue-title-row">
           <span class="issue-title">${escapeHtml(issue.title)}</span>
           <span class="severity-badge ${issue.severity}">${issue.severity}</span>
-          <span class="category-badge">${issue.category || ''}</span>
+          ${sectionLabel ? `<span class="section-tag section-tag-${issue.section}">${sectionLabel}</span>` : ''}
         </div>
         <div class="issue-location">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13S3 17 3 10a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
@@ -1109,10 +1212,14 @@ function createIssueCard(issue) {
           <div class="issue-detail-value">${escapeHtml(issue.description || '')}</div>
         </div>
         <div class="issue-detail-item">
-          <div class="issue-detail-label">Guideline Violated</div>
+          <div class="issue-detail-label">Rule / Best Practice Violated</div>
           <div class="issue-detail-value">${escapeHtml(issue.guidelineViolated || '—')}</div>
         </div>
         <div class="issue-detail-item">
+          <div class="issue-detail-label">Sub-category</div>
+          <div class="issue-detail-value">${escapeHtml(issue.category || '—')}</div>
+        </div>
+        <div class="issue-detail-item" style="grid-column:1/-1">
           <div class="issue-detail-label">Current → Expected</div>
           <div class="issue-detail-value">
             <div class="value-diff">
@@ -1124,7 +1231,7 @@ function createIssueCard(issue) {
         </div>
       </div>
       <div class="issue-recommendation">
-        <div class="issue-recommendation-label">Recommendation</div>
+        <div class="issue-recommendation-label">Fix / Recommendation</div>
         <div class="issue-recommendation-text">${escapeHtml(issue.recommendation || '')}</div>
       </div>
     </div>
@@ -1175,17 +1282,14 @@ function highlightIssueCard(id) {
 }
 
 // =============================================
-// FILTER
+// FILTER (severity + section, AND logic)
 // =============================================
 function setFilter(filter) {
   state.activeFilter = filter;
   document.querySelectorAll('.filter-tab').forEach(t => {
     t.classList.toggle('active', t.dataset.filter === filter);
   });
-  document.querySelectorAll('.issue-card').forEach(card => {
-    const visible = filter === 'all' || card.dataset.severity === filter;
-    card.classList.toggle('hidden', !visible);
-  });
+  applyFilters();
 }
 
 // =============================================
@@ -1217,6 +1321,7 @@ function showSection(name) {
 function resetToUpload() {
   state.analysisResult = null;
   state.highlightedIssueId = null;
+  state.activeSection = 'all';
   setFilter('all');
   showSection('upload');
 }
